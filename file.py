@@ -154,4 +154,53 @@ def make_siamese_layer():
     return Model(inputs=[input_image, validation_image], outputs=classification, name='siamese')
 
 layer = make_siamese_layer()
-print(layer.summary())
+
+# Setup loss and optimizer
+binary_cross_loss = tf.keras.losses.BinaryCrossentropy()
+opt = tf.keras.optimizers.Adam(learning_rate=0.0001)
+
+# Establish checkpoint
+checkpoint_dir = './training_checkpoints'
+checkpoint_prefix = os.path.join(checkpoint_dir, "ckpt")
+checkpoint = tf.train.Checkpoint(optimizer=opt, siamese_model=layer)
+
+# Building a training step
+@tf.function
+def train_step(batch):
+    with tf.GradientTape() as tape:
+        input_image, validation_image, label = batch
+        
+        # Forward pass
+        yhat = layer([input_image, validation_image], training=True)
+        # Calculate loss
+        loss = binary_cross_loss(label, yhat)
+    print(loss)
+        
+    # Calculate gradients
+    gradients = tape.gradient(loss, layer.trainable_variables)
+    
+    # Calculate updated weights and apply to siamese model
+    opt.apply_gradients(zip(gradients, layer.trainable_variables))
+    
+    return loss
+
+# Buildina a training loop
+def train(EPOCHS, data):
+    # Loop over epochs
+    for epoch in range(1, EPOCHS+1):
+        print(f'Epoch {epoch}/{EPOCHS}')
+        progbar = tf.keras.utils.Progbar(len(data))
+        
+        # Loop over batches
+        for idx, batch in enumerate(data):
+            
+            # Run train step
+            train_step(batch)
+            progbar.update(idx+1)
+            
+        # Save checkpoints
+        if epoch % 10 == 0:
+            checkpoint.save(file_prefix=checkpoint_prefix)
+            
+EPOCHS = 50
+train(EPOCHS, train_data)
