@@ -6,7 +6,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 from tensorflow.keras.models import Model
-from tensorflow.keras.layers import Input, Conv2D, Dense, MaxPooling2D, Input, Flatten
+from tensorflow.keras.layers import Input, Conv2D, Dense, MaxPooling2D, Flatten, Layer
 import tensorflow as tf
 
 import uuid
@@ -61,6 +61,7 @@ ANC_PATH = os.path.join('data', 'anchor')
 # # Release the camera
 # cap.release()
 # cv2.destroyAllWindows()
+''''''
 
 anchor = tf.data.Dataset.list_files(os.path.join(ANC_PATH, '*.jpg')).take(300)
 positive = tf.data.Dataset.list_files(os.path.join(POS_PATH, '*.jpg')).take(300)
@@ -100,3 +101,57 @@ test_data = data.skip(round(len(data) * .7))
 test_data = test_data.take(round(len(data) * .3))
 test_data = test_data.batch(16)
 test_data = test_data.prefetch(8)
+
+# Building a neural network
+def make_embedding():
+    input = Input(shape=(105, 105, 3), name='input')
+    
+    # First cycle
+    # Convolutional and ReLU layer
+    c1 = Conv2D(64, (10, 10), activation='relu')(input)
+    # Pooling layer
+    m1 = MaxPooling2D(64, (2, 2), padding='same')(c1)
+    
+    # Second cycle
+    c2 = Conv2D(128, (7, 7), activation='relu')(m1)
+    m2 = MaxPooling2D(64, (2, 2), padding='same')(c2)
+    
+    # Third cycle
+    c3 = Conv2D(128, (4, 4), activation='relu')(m2)
+    m3 = MaxPooling2D(64, (2, 2), padding='same')(c3)
+    
+    # Fourth cycle
+    c4 = Conv2D(256, (4, 4), activation='relu')(m3)
+    f1 = Flatten()(c4)
+    d1 = Dense(4096, activation='sigmoid')(f1)
+    
+    return Model(inputs=[input], outputs=[d1], name='embedding')
+
+embedding = make_embedding()
+
+# print(make_embedding().summary())
+
+class L1Distance_layer(Layer):
+    def __init__(self, **kwargs):
+        super().__init__()
+    
+    def count(input_embedding, validation_embedding):
+        return tf.math.abs(input_embedding - validation_embedding) 
+
+# Constructing a Siamese network
+def make_siamese_layer():
+    input_image = Input(shape=(105, 105, 3), name='input_image')
+    validation_image = Input(shape=(105, 105, 3), name='validation_image')
+    
+    # Combine Siamese distance layer with the embedding layer
+    siamese_layer = L1Distance_layer()
+    siamese_layer._name = "distance"
+    distances = siamese_layer(embedding(input_image), embedding(validation_image))
+
+    # Classification layer
+    classification = Dense(1, activation='sigmoid')(distances)
+    
+    return Model(inputs=[input_image, validation_image], outputs=classification, name='siamese')
+
+layer = make_siamese_layer()
+print(layer.summary())
